@@ -33,7 +33,7 @@ import plotly.express as px
 
 It makes sense to do this one, as all the processes flow into one and were initially taken from a juptyr notebook.
 
-# First Goal
+**Creating an Elo dataset**
 I'm trying to create a dataset that would allow me to run the code I wrote to create prematch and postmatch elo for each team on the home and away side of a match. Here are the steps:
 
 Changing some of the column names for readability and concatenating the data from football-data
@@ -131,7 +131,7 @@ matches
 GT(matches.head(5))
 ```
 
-Next I create a dictionary for team_ids with the starting elo I took from clubelo's website such that 475 = 1877 for instance. Then I generate the elo for each match pre and post result.
+Next I create a dictionary for team_ids with the starting elo I took from clubelo's website such that 475 = 1877 for instance. Then I generate the elo for each match pre and post result. Using this we are able to get consistent positive and negative (zero-sum) $\Delta$ Elo's for the winning or losing team (which was not possible with clubelo api).
 
 ```{python}
 starting_elo = {"Manchester United FC":1877.080444,
@@ -237,4 +237,70 @@ def update_elo(matches_df, id_to_elo, K=30, home_adv_pts=100.0):
 finale = update_elo(matches,id_to_elo, K=30, home_adv_pts=100.0)
 x = finale.to_csv('data/Elo_Table_Final.csv', index=False) 
 GT(finale.head(5))
+```
+**Creating the final dataset for modelling**
+
+This requires combining the player_ratings dataset created by the webscraping script that takes hours to run and doing relevant tidying and transforming. There's two big transformations that occur now.
+1. There are missing values for certain player ratings in some matches. This leads to the firs transformation; if a player is missing values then replace those values with their overall average, and if even then (and there were) missing values then replace them by their team's average.
+2. The second big transformation comes with changing the signs of the rating from +8.7 to -8.7 for instance if the player was on the away side. This was done primarily for the model to understand our X$\beta$ and assign negative and positive $\Delta$ as belonging to the away or home side respectively. This was taken directly from the augmented adjusted plus-minus paper where they do the same transformation.
+
+Here is how the dataset looks like after those transformations
+
+```{python}
+all_ratings = pd.read_csv('data/player_ratings.csv')
+all_ratings = all_ratings.rename(columns={'Match ID': 'match_id', 'Team ID': 'team_id'})
+conn = duckdb.connect()
+conn.register('finale', finale)
+conn.register('ratings', all_ratings)
+query = """
+SELECT 
+a.season_id,
+a.Date,
+a.match_id,
+a.home_team_id,
+a.away_team_id,
+a.old_home_elo,
+a.old_away_elo,
+a.new_home_elo,
+a.new_away_elo,
+a.delta_home,
+a.delta_away,
+b.team_id as player_team_id,
+b.Player,
+b.Rating as player_rating,
+FROM finale a
+INNER JOIN ratings b
+ON a.match_id = b.match_id
+"""
+df = conn.execute(query).df()
+conn.close()
+
+df['is_home'] = df['player_team_id'] == df['home_team_id']
+player_avg_rating = df.groupby("Player")["player_rating"].mean()
+team_avg_rating = df.groupby("player_team_id")["player_rating"].mean()
+df["player_rating"] = df.apply(lambda row: player_avg_rating[row["Player"]] if pd.isna(row["player_rating"]) else row["player_rating"], axis=1) # their average rating
+df["player_rating"] = df.apply(lambda row: team_avg_rating[row["player_team_id"]] if pd.isna(row["player_rating"]) else row["player_rating"], axis=1) # still missing so average team rating
+df['sign'] = 2 * df['is_home'].astype(int) - 1 
+df['rating'] = df['player_rating'] * df['sign']
+GT(df.head(10))
+```
+
+**Final Step - Creating our player matrix and the $\Delta$ Elo**
+
+Creating the covariate matrix X and the $\Delta$ Elo was done through turning the long format of the data into a wide format. Also made sure that the index for our response and the x_matrix is the same. Additionally coords were selected to identify the dimensions of a model. 
+
+```{python}
+fin = df.copy()
+x = fin.pivot_table(index=["match_id"], columns='Player', values="rating").fillna(0)
+match_df = fin.drop_duplicates(subset='match_id').set_index('match_id')
+match_df = match_df.reindex(x.index) 
+delta_elo = match_df['delta_home'].values
+x_matrix = x.values
+player_names = x.columns.to_list()
+match = np.arange(x_matrix.shape[0])
+coords = {
+    "player": player_names,
+    "match": match
+}
+print(x_matrix)
 ```

@@ -45,7 +45,7 @@ Datasets that were extracted/scraped and used with relevant considerations:
 
 1. Finding all the match fixtures that happened in the 2023/24 and 2024/25 seasons using this website: https://www.football-data.co.uk/englandm.php which has csv files for all the matches with home and away teams and the score line at the end of the match.
 
-2. Webscraping footballcritic to extract unique match_id in a particular season for each premier league team. For this the season_id was unique and was the 'slug' which has the season name and team names. Here is an example url https://www.footballcritic.com/premier-league/season-2024-2025/matches/2/72764
+2. Webscraping footballcritic to extract unique match_id in a particular season for each premier league team. For this the season_id was unique and was the 'slug' which has the season name and team names. Here is an example url https://www.footballcritic.com/premier-league/season-2024-2025/matches/2/72764. A big problem with footballcritic is that before 2023/24 season, the player ratings don't exist. Therefore I was limited to just the last two seasons. Initially the plan was to have 6 seasons worth of data.
 
 3. Generally the idea was to use the api to find club elo information from this website http://clubelo.com/. However, I encountered many problems with the final dataset clubelo also included premier league and champions league (and other european competition fixtures) and did not have a consistent daily elo dataset that could be used. 
 
