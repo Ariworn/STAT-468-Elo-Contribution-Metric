@@ -1,0 +1,240 @@
+# Tidy and Transform
+
+Set up
+```{python}
+import numpy as np
+import pandas as pd
+from datetime import datetime
+from io import StringIO #yes
+#Data visualization libraries
+from lets_plot import *
+LetsPlot.setup_html()
+from great_tables import GT
+import arviz as az
+#Web scraping libraries
+import selenium as se
+from curl_cffi import requests
+from bs4 import BeautifulSoup
+import time
+#For database connection and manipulation 
+import duckdb
+#For Hierarchical modeling
+import pymc as pm
+import xarray as xr
+#for pyshiny
+import shiny
+import requests as req
+import vetiver
+import pins
+import logging 
+import json
+import plotly.express as px
+```
+
+It makes sense to do this one, as all the processes flow into one and were initially taken from a juptyr notebook.
+
+# First Goal
+I'm trying to create a dataset that would allow me to run the code I wrote to create prematch and postmatch elo for each team on the home and away side of a match. Here are the steps:
+
+Changing some of the column names for readability and concatenating the data from football-data
+
+```{python}
+season_23_24 = pd.read_csv('data/2023-24.csv')
+season_24_25 = pd.read_csv('data/2024-25.csv')
+frames = [season_23_24, season_24_25]
+full = pd.concat(frames)
+full.rename(columns={'FTHG': 'Home_Goals'}, inplace=True)
+full.rename(columns={'FTAG': 'Away_Goals'}, inplace=True)
+full.rename(columns={'FTR': 'Result'}, inplace=True)
+team_ids = pd.read_csv('data/team_ids.csv')
+GT(team_ids.head(5))
+```
+
+The webscraper for match_ids gives us data that looks like this
+
+```{python}
+Match_info = pd.read_csv('data/team_match_ids_with_dates_and_comps.csv')
+GT(Match_info.head(5))
+```
+
+After this I change the date into datetime, filter for premier league matches and create a mapping between the names in football-data.co.uk and the ones used in footballcritc.
+
+```{python}
+Match_info = pd.read_csv('data/team_match_ids_with_dates_and_comps.csv')
+Match_info.drop(Match_info[Match_info['competition'] != 'EPL'].index, inplace = True)
+Match_info['date'] = pd.to_datetime(Match_info['date'], format='%b %d, %Y')
+Match_info
+myelo = full.copy()#from football-data
+myelo = myelo[['Date', 'HomeTeam', 'AwayTeam', 'Home_Goals', 'Away_Goals']]
+myelo['Date'] = pd.to_datetime(myelo['Date'], format= '%d/%m/%Y')
+name_mapping = {
+    "Man United": "Manchester United FC",
+    "Wolves": "Wolverhampton Wanderers FC",
+    "Everton": "Everton FC",
+    "Chelsea": "Chelsea FC",
+    "Man City": "Manchester City FC",
+    "Norwich": "Norwich City FC",
+    "Sheffield United": "Sheffield United FC",
+    "Brighton": "Brighton & Hove Albion FC",
+    "Aston Villa": "Aston Villa FC",
+    "Leeds": "Leeds United FC",
+    "Fulham": "Fulham FC",
+    "Brentford": "Brentford FC",
+    "Southampton": "Southampton FC",
+    "Burnley": "Burnley FC",
+    "Newcastle": "Newcastle United FC",
+    "Arsenal": "Arsenal FC",
+    "West Ham": "West Ham United FC",
+    "Nott'm Forest": "Nottingham Forest FC",
+    "Luton": "Luton Town FC",
+    "Ipswich": "Ipswich Town FC",
+    "Tottenham": "Tottenham Hotspur FC",
+    "Leicester": "Leicester City FC",
+    "Bournemouth": "AFC Bournemouth",
+    "Liverpool": "Liverpool FC",
+    "Crystal Palace": "Crystal Palace FC"
+}
+myelo = myelo.replace(name_mapping)
+GT(myelo.head(5))
+```
+
+To create a dataframe that has home and away teams in separate columns I match the team_names with the home or away team id with an inner join. The final output looks like this:
+
+```{python}
+conn = duckdb.connect()
+conn.register('ids', Match_info) #football critic data
+conn.register('myelo', myelo) # from football-uk.co
+query = """
+SELECT 
+    a.season_id, a.match_id,
+    b.*
+FROM ids a
+INNER JOIN myelo b
+ON a.date = b.Date
+AND (a.team_name = b.HomeTeam OR a.team_name = b.AwayTeam)
+ORDER BY b.Date
+"""
+result = conn.execute(query).df()
+result.to_csv('data/Elo_Table_Pre.csv', index=False)  # Changed from df to result
+conn.close()
+result = result.drop_duplicates()
+result = result.replace('Brighton & Hove Albion FC', 'Brighton Hove Albion FC')
+#Elo Creater
+team_id_map = Match_info.copy()
+team_id_map = team_id_map.loc[(team_id_map['season'] == 'season-2024-2025') | (team_id_map['season'] == 'season-2023-2024')]#to account for promoted teams
+team_id_map['team_name'] = team_id_map['team_name'].replace('Brighton & Hove Albion FC', 'Brighton Hove Albion FC')
+team_id_map = team_id_map.set_index('team_name')['team_id'].to_dict()
+result['home_team_id'] = result['HomeTeam'].map(team_id_map)
+result['away_team_id'] = result['AwayTeam'].map(team_id_map)
+matches = result[['season_id','match_id', 'Date', 'home_team_id', 'away_team_id', 'Home_Goals', 'Away_Goals']]
+matches
+GT(matches.head(5))
+```
+
+Next I create a dictionary for team_ids with the starting elo I took from clubelo's website such that 475 = 1877 for instance. Then I generate the elo for each match pre and post result.
+
+```{python}
+starting_elo = {"Manchester United FC":1877.080444,
+    "Wolverhampton Wanderers FC":1715.651001,
+    "Everton FC":1699.523682,
+    "Chelsea FC":1788.11755371,
+    "Manchester City FC": 2080.86743164,
+    "Sheffield United FC":1644.08129883,
+    "Brighton Hove Albion FC":1832.391968,
+    "Aston Villa FC":1816.943237,
+    "Fulham FC": 1745.379028,
+    "Brentford FC":1824.3449707,
+    "Southampton FC":1599.60339355,
+    "Burnley FC":1726.4185791,
+    "Newcastle United FC":1887.082153,
+    "Arsenal FC":1921.475342,
+    "West Ham United FC": 1777.576782,
+    "Nottingham Forest FC": 1671.890747,
+    "Luton Town FC":1602.344727,
+    "Ipswich Town FC":1568.32556152,
+    "Tottenham Hotspur FC":1815.88818359,
+    "Leicester City FC":1643.66943359,
+    "AFC Bournemouth":1660.65661621,
+    "Liverpool FC":1943.996216,
+    "Crystal Palace FC":1757.40673828}
+starting_elo # unit test to check if there's 760 and also if delta elo is appropriate
+team_id_map
+id_to_name = {tid: name for name, tid in team_id_map.items()}
+id_to_elo = {tid: starting_elo[name] for tid, name in id_to_name.items()}
+
+K = 30
+home_adv_pts = 100  
+import pandas as pd
+
+def goal_diff_factor(goal_diff):
+    if goal_diff <= 1:
+        return 1.0
+    elif goal_diff == 2:
+        return 1.5
+    else:
+        return (11 + goal_diff) / 8.0
+
+def expected_prob(r_a, r_b, home_adv_pts=100.0):
+    return 1.0 / (1.0 + 10 ** ((r_b - (r_a + home_adv_pts)) / 400.0))
+
+def update_elo(matches_df, id_to_elo, K=30, home_adv_pts=100.0):
+    elo_history = []
+
+    for _, row in matches_df.sort_values("Date").iterrows():
+        season_id = row["season_id"]
+        match_id = row["match_id"]
+        home_id = row["home_team_id"]
+        away_id = row["away_team_id"]
+        home_goals = row["Home_Goals"]
+        away_goals = row["Away_Goals"]
+
+        # Get current ratings
+        r_home = id_to_elo[home_id]
+        r_away = id_to_elo[away_id]
+
+        # Match result (W)
+        if home_goals > away_goals:
+            w_home, w_away = 1.0, 0.0
+        elif home_goals < away_goals:
+            w_home, w_away = 0.0, 1.0
+        else:
+            w_home, w_away = 0.5, 0.5
+
+        # Expected result (We)
+        we_home = expected_prob(r_home, r_away, home_adv_pts)
+        we_away = 1 - we_home
+
+        # Goal difference factor (G)
+        g = goal_diff_factor(abs(home_goals - away_goals))
+
+        # New ratings
+        new_r_home = r_home + K * g * (w_home - we_home)
+        new_r_away = r_away + K * g * (w_away - we_away)
+
+        delta_home = K * g * (w_home - we_home)
+        delta_away = K * g * (w_away - we_away) 
+        # Store history with match_id
+        elo_history.append({
+            "season_id":season_id,
+            "match_id": match_id,
+            "date": row["Date"],
+            "home_team_id": home_id,
+            "away_team_id": away_id,
+            "old_home_elo": r_home,
+            "old_away_elo": r_away,
+            "new_home_elo": new_r_home,
+            "new_away_elo": new_r_away,
+            "delta_home": delta_home,
+            "delta_away": delta_away
+        })
+
+        # Update ratings for next match
+        id_to_elo[home_id] = new_r_home
+        id_to_elo[away_id] = new_r_away
+
+    return pd.DataFrame(elo_history)
+
+finale = update_elo(matches,id_to_elo, K=30, home_adv_pts=100.0)
+x = finale.to_csv('data/Elo_Table_Final.csv', index=False) 
+GT(finale.head(5))
+```
