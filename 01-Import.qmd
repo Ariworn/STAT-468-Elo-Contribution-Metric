@@ -1,0 +1,81 @@
+# Import
+
+For the project here are all the list of packages that were installed and exist on the requirements.txt file.
+
+```{python}
+#Libraries used in the project
+#Basic libraries
+import numpy as np
+import pandas as pd
+from datetime import datetime
+from io import StringIO #yes
+#Data visualization libraries
+from lets_plot import *
+LetsPlot.setup_html()
+from great_tables import GT
+import arviz as az
+#Web scraping libraries
+import selenium as se
+from curl_cffi import requests
+from bs4 import BeautifulSoup
+import time
+#For database connection and manipulation 
+import duckdb
+#For Hierarchical modeling
+import pymc as pm
+import xarray as xr
+#for pyshiny
+import shiny
+import requests as req
+import vetiver
+import pins
+import logging 
+import json
+import plotly.express as px
+```
+
+Some considerations regarding the packages:
+1. I needed selenium to run an automated browser to bypass certain obstacles in scraping player ratings for each match. A lot of the code is heavily adapted from chat gpt (https://chatgpt.com/share/689d0e3d-8f90-800c-9166-fe3dc3e3454f)
+
+2. Initially I was webscraping sofascore ratings but wasted so much time to no avail but learnt about a really cool package called curl_cffi from reddit that helps you impersonate your browser by using a header-agent. I continued using the same package. https://github.com/lexiforest/curl_cffi
+
+Datasets that were extracted/scraped and used with relevant considerations:
+
+1. Finding all the match fixtures that happened in the 2023/24 and 2024/25 seasons using this website: https://www.football-data.co.uk/englandm.php which has csv files for all the matches with home and away teams and the score line at the end of the match.
+
+2. Webscraping footballcritic to extract unique match_id in a particular season for each premier league team. For this the season_id was unique and was the 'slug' which has the season name and team names. Here is an example url https://www.footballcritic.com/premier-league/season-2024-2025/matches/2/72764
+
+3. Generally the idea was to use the api to find club elo information from this website http://clubelo.com/. However, I encountered many problems with the final dataset clubelo also included premier league and champions league (and other european competition fixtures) and did not have a consistent daily elo dataset that could be used. 
+
+4. Instead I created my own elo model using the methodology listed here: https://www.footballdatabase.com/methodology. Moreover, instead of starting at a baseline 1500 I used the preseason elo ratings from clubelo's website that I manually extracted for each premier league club. 
+
+Here are examples of how all datasets actually look like before tidying and transformation:
+
+1. Football-data
+
+```{python}
+season_23_24 = pd.read_csv('data/2023-24.csv')
+season_24_25 = pd.read_csv('data/2024-25.csv')
+frames = [season_23_24, season_24_25]
+full = pd.concat(frames)
+GT(full.head(5))
+```
+
+2. Match_id from footballcritic
+```{python}
+Match_info = pd.read_csv('data/team_match_ids_with_dates_and_comps.csv')
+GT(Match_info.head(5))
+```
+
+3. Elo across seasons and matches
+```{python}
+elo = pd.read_csv('data/Elo_Table_Final.csv')
+GT(elo.head(5))
+```
+
+4. Player ratings webscraped from footballcritic
+
+```{python}
+all_ratings = pd.read_csv('data/player_ratings.csv')
+GT(all_ratings.head(5))
+```

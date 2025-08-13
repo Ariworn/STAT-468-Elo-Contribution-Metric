@@ -1,0 +1,5 @@
+# Modelling Chapter
+so the idea is to use a Bayesian Hierarchical Model (partial pooling) that nests parameters inside parameters, and as such they are viewed as a sample from a probability distribution of parameters (taking a lot of this from pymc's multilevel modelling module). In a completely pooled model we assume that $\Delta$ Elo.
+
+
+This way we take into account differences in variation between our sampling units. In our context, the skill of a player realized in their ratings, can vary between each players in matches and this can handle the multicolinearity that exists between players that play with each other.

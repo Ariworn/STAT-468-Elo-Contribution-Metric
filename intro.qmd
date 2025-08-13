@@ -1,0 +1,15 @@
+# Abstract
+
+**The Motivating Idea**
+
+Elo generally represents the relative strength of a player or team compared to others by considering their past results. 
+We are looking at elo for soccer clubs in the 2023-24 and 2024-25 premier league seasons.
+
+$\Delta$ Elo is defined as: the difference in elo before a match was played and the elo after a match was played for a premier league team. It represents the loss or gain of relative strength.
+
+Using $\Delta$ Elo as our dependent variable, the idea is to use individual player ratings taken from a website that publishes these ratings, to model a player's contribution to the delta elo in that match. This is similar to making an adjusted plus-minus model, and the current framework makes use of an idea from (Matano et al.) in their paper titled "Augmenting Adjusted Plus-Minus in Soccer with FIFA Ratings." In it they reframe an Adjusted Plus Minus (APM) model framework into a Bayesian model by incorporating FIFA ratings into the prior distribution. 
+
+Since Goal difference and delta_elo are similar, the idea is to use similar modelling. What we attempt to do is use a Bayesian Hierarchical Model to explain how much a players relative skill has an impact on their team's $\Delta$ Elo.
+
+More details about the model are found here: [Modelling Chapter](05-Model.qmd)
+
