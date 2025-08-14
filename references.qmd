@@ -2,3 +2,16 @@
 
 ::: {#refs}
 :::
+Data sources:
+
+1. https://www.football-data.co.uk/englandm.php
+
+2. https://www.footballcritic.com/
+
+3. http://clubelo.com/
+
+Modelling
+
+1. https://www.pymc.io/projects/examples/en/latest/generalized_linear_models/multilevel_modeling.html
+2. https://allendowney.github.io/BayesianInferencePyMC/04_hierarchical.html
+3. https://www.pymc.io/projects/docs/en/stable/learn/core_notebooks/model_comparison.html

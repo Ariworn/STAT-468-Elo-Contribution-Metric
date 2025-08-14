@@ -1,6 +1,3 @@
 # Communicate
 This report will be published on github actions
 
-For the Web app here's the workflow:
-
-

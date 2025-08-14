@@ -8,7 +8,6 @@ book:
   date: "2025-08-13"
   chapters:
     - index.qmd
-    - 00-intro.qmd
     - 01-Import.qmd
     - 02-Tidy-Transform.qmd
     - 03-Vizualize.qmd

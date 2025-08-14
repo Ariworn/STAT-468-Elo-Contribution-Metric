@@ -1,0 +1,9 @@
+# Appendix: Declaration of AI
+
+Github copilot was used for autocomplete during the coding process
+
+Webscraping Match_ID
+https://gemini.google.com/share/751748b5b33c
+
+Webscraping using selenium
+(https://chatgpt.com/share/689d0e3d-8f90-800c-9166-fe3dc3e3454f)
