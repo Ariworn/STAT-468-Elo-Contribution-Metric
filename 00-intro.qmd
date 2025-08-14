@@ -11,5 +11,5 @@ Using $\Delta$ Elo as our dependent variable, the idea is to use individual play
 
 Since Goal difference and delta_elo are similar, the idea is to use similar modelling. What we attempt to do is use a Bayesian Hierarchical Model to explain how much a players relative skill has an impact on their team's $\Delta$ Elo.
 
-More details about the model are found here: [Modelling Chapter](05-Model.qmd)
+More details about the model are found here: [Model](05-Model.qmd)
 

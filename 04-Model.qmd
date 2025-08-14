@@ -1,5 +1,197 @@
-# Modelling Chapter
+# Model
+```{python}
+import numpy as np
+import pandas as pd
+from datetime import datetime
+from io import StringIO #yes
+#Data visualization libraries
+from lets_plot import *
+LetsPlot.setup_html()
+from great_tables import GT
+import arviz as az
+#Web scraping libraries
+import selenium as se
+from curl_cffi import requests
+from bs4 import BeautifulSoup
+import time
+#For database connection and manipulation 
+import duckdb
+#For Hierarchical modeling
+import pymc as pm
+import xarray as xr
+#for pyshiny
+import shiny
+import requests as req
+import vetiver
+import pins
+import logging 
+import json
+import plotly.express as px
+```
+
+Most of my readings comprised from these links on how to model hierarchial model. The information I provide about LOO and ELPD come directly from this. 
+https://www.pymc.io/projects/examples/en/latest/generalized_linear_models/multilevel_modeling.html
+https://allendowney.github.io/BayesianInferencePyMC/04_hierarchical.html
+https://www.pymc.io/projects/docs/en/stable/learn/core_notebooks/model_comparison.html
+
 so the idea is to use a Bayesian Hierarchical Model (partial pooling) that nests parameters inside parameters, and as such they are viewed as a sample from a probability distribution of parameters (taking a lot of this from pymc's multilevel modelling module). In a completely pooled model we assume that $\Delta$ Elo.
 
 
 This way we take into account differences in variation between our sampling units. In our context, the skill of a player realized in their ratings, can vary between each players in matches and this can handle the multicolinearity that exists between players that play with each other.
+
+
+
+```{python}
+fin = pd.read_csv('data/player_ratings_with_elo.csv')
+x = fin.pivot_table(index=["match_id"], columns='Player', values="rating").fillna(0)
+match_df = fin.drop_duplicates(subset='match_id').set_index('match_id')
+match_df = match_df.reindex(x.index) 
+delta_elo = match_df['delta_home'].values
+x_matrix = x.values
+player_names = x.columns.to_list()
+match = np.arange(x_matrix.shape[0])
+RANDOM_SEED = 2222
+az.style.use("arviz-darkgrid")
+coords = {
+    "player": player_names,
+    "match": match
+}
+
+with pm.Model(coords=coords) as model_small_sigma:
+    mu_beta = pm.Normal('mu_beta', mu=0, sigma=0.5)
+    sigma_beta = pm.HalfNormal('sigma_beta', sigma=0.5)
+    beta_offset = pm.Normal('beta_offset', mu=0, sigma=1, dims="player")
+    beta = pm.Deterministic('beta', mu_beta + beta_offset * sigma_beta, dims="player")
+    mu = pm.Deterministic('mu', pm.math.dot(x_matrix, beta), dims="match")
+    sigma = pm.HalfNormal('sigma', sigma=1)
+    y_obs = pm.Normal('y_obs', mu=mu, sigma=sigma, observed=delta_elo, dims="match") 
+    pp1 = pm.sample_prior_predictive(random_seed=RANDOM_SEED, samples=500)
+    trace1 = pm.sample(2500,tune=2500,random_seed=RANDOM_SEED)
+    posterior_pred1 = pm.sample_posterior_predictive(trace1, var_names=["y_obs", "mu"], random_seed=RANDOM_SEED, return_inferencedata=True)
+    pm.compute_log_likelihood(trace1)
+    
+    
+with pm.Model(coords=coords) as half_normal_prior:
+    mu_beta = pm.Normal('mu_beta', mu=0, sigma=0.5)
+    sigma_beta = pm.HalfNormal('sigma_beta', sigma=1)
+    beta_offset = pm.Normal('beta_offset', mu=0, sigma=1, dims="player")
+    beta = pm.Deterministic('beta', mu_beta + beta_offset * sigma_beta, dims="player")
+    mu = pm.Deterministic('mu', pm.math.dot(x_matrix, beta), dims="match")
+    sigma = pm.HalfNormal('sigma', sigma=1)
+    y_obs = pm.Normal('y_obs', mu=mu, sigma=sigma, observed=delta_elo, dims="match") 
+    pp4 = pm.sample_prior_predictive(random_seed=RANDOM_SEED, samples=500)
+    trace4 = pm.sample(2500,tune=2500,random_seed=RANDOM_SEED)
+    posterior_pred4 = pm.sample_posterior_predictive(trace4, var_names=["y_obs", "mu"], random_seed=RANDOM_SEED, return_inferencedata=True)
+    pm.compute_log_likelihood(trace4)
+
+df_prior_pred = pd.DataFrame({
+    'delta_elo4': pp4.prior_predictive["y_obs"].values.flatten(),
+    'delta_elo1': pp1.prior_predictive["y_obs"].values.flatten(),
+})
+
+df_melted = df_prior_pred.melt(var_name='Prior', value_name='delta_elo')
+(
+    ggplot(df_melted, aes(x='delta_elo', fill='Prior'))
+    + geom_histogram(
+        bins=80, 
+        color="white", 
+        alpha=0.5,  
+        position='identity')+ labs(
+        x="Simulated Delta Elo",
+        y="Count",
+        title="Prior Predictive Distributions Comparison"
+    )
+)
+az.plot_ppc(posterior_pred1, var_names=["y_obs"])
+az.plot_ppc(posterior_pred4, var_names=["y_obs"])
+
+az.plot_trace(trace1, divergences='top')
+pm.model_to_graphviz(model_small_sigma)
+```
+
+From the prior predictive checks on delta elo it seems that models with a HalfCauchy distribution are simulating huge delta elo values (in the thousands) so I'm leaving those out as that should not be possible. So I'm comparing models 1 and 4, only in terms of their sigma_beta values which are 1 and 0.5. These are relatively weak informative priors.
+
+
+
+I'm using Leave-one-out Cross-validation (Loo) to compare the models with different hyperparameter values. LOO cross-validation is an estimate of the out-of-sample predictive fit. Generally we select the one with the highest ELPD (Expected Log Pointwise Predictive density) is better however there's always uncertainty around the estimates.
+
+
+```{python}
+model_small_sigma = az.loo(trace1)
+half_normal_prior = az.loo(trace4)
+df_compare = az.compare({"model_small_sigma": model_small_sigma,
+                        "half_normal_prior": half_normal_prior})
+df_compare
+az.plot_compare(df_compare, insample_dev=False)
+```
+
+**After running the model we use the posterior_beta to create a player contribution metric**
+
+We take the posterior_beta from the model and find the prercentage contribution to elo. We create a dataset for each season for a players contribution. Here is how the final dataset looks like.
+
+```{python}
+posterior_beta = trace1.posterior["beta"].mean(dim=["chain", "draw"]).values  # shape: (n_players,)
+total_effect = np.sum(np.abs(posterior_beta))  # Total absolute impact
+player_contributions =  (np.abs(posterior_beta) / total_effect)*100  # Percentage contribution
+
+contrib_df = pd.DataFrame({
+    "player_name": player_names,
+    "contribution_pct": player_contributions,
+    "beta_mean": posterior_beta 
+}).sort_values("contribution_pct", ascending=False)
+conn = duckdb.connect()
+conn.register('contribution', contrib_df)
+conn.register('fin', fin)
+
+query = """
+SELECT 
+    a.*,
+    b.contribution_pct,
+    b.beta_mean
+FROM fin a
+INNER JOIN contribution b
+    ON a.Player = b.player_name
+WHERE a.season_id == 68731
+"""
+df = conn.execute(query).df()
+df.to_csv('data/Elo_Contributions_2023.csv', index=False)
+conn.close()
+conn = duckdb.connect()
+conn.register('contribution', contrib_df)
+conn.register('fin', fin)
+
+query = """
+SELECT 
+    a.*,
+    b.contribution_pct,
+    b.beta_mean
+FROM fin a
+INNER JOIN contribution b
+ON a.Player = b.player_name
+where season_id = 72764
+"""
+df = conn.execute(query).df()
+df.to_csv('data/Elo_Contributions_2024.csv')
+conn.close()
+prem_2023 = pd.read_csv('data/Elo_Contributions_2023.csv')
+prem_2024 = pd.read_csv('data/Elo_Contributions_2024.csv')
+
+prem_2023 = df.groupby(['season_id','date','match_id','player_team_id', 'Player']).agg({
+    'player_rating': 'mean',
+    'contribution_pct': 'mean',
+    'beta_mean': 'mean'
+}).reset_index()
+prem_2023
+
+prem_2024 = prem_2024.groupby(['season_id','date','match_id','player_team_id', 'Player']).agg({
+    'player_rating': 'mean',
+    'contribution_pct': 'mean',
+    'beta_mean': 'mean'
+}).reset_index()
+prem_2024
+
+combined = pd.concat([prem_2023, prem_2024], ignore_index=True)
+combined.to_csv('data/Elo_Contributions_combined.csv')
+combined = pd.read_csv('data/Elo_Contributions_combined.csv')
+combined = GT(combined.head(5))
+```

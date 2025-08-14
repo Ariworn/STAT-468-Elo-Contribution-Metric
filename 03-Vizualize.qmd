@@ -1,0 +1,81 @@
+# Vizualize
+```{python}
+import numpy as np
+import pandas as pd
+from datetime import datetime
+from io import StringIO #yes
+#Data visualization libraries
+from lets_plot import *
+LetsPlot.setup_html()
+from great_tables import GT
+import arviz as az
+#Web scraping libraries
+import selenium as se
+from curl_cffi import requests
+from bs4 import BeautifulSoup
+import time
+#For database connection and manipulation 
+import duckdb
+#For Hierarchical modeling
+import pymc as pm
+import xarray as xr
+#for pyshiny
+import shiny
+import requests as req
+import vetiver
+import pins
+import logging 
+import json
+import plotly.express as px
+```
+
+For the vizualiations I picked 2 before the model and have some later that come directly from arviz library which is very useful for bayesian modelling.
+
+First we vizualize a histogram for all player ratings to see the distribution:
+```{python}
+player_ratings_df = pd.read_csv('data/player_ratings_with_elo.csv')
+mean_rating = player_ratings_df['player_rating'].mean()
+ratings_hist = (
+    ggplot(player_ratings_df, aes(x='player_rating'))
+    + geom_histogram(
+        bins=70,
+        color='black',
+        fill='seagreen'
+    )
+    + geom_vline(
+        xintercept=mean_rating,
+        color="red",
+        linetype="dashed"
+    )
+    + labs(
+        x="Player Rating",
+        y="Count",
+        title="Distribution of Player Ratings"
+    )
+)   
+ratings_hist
+```
+We now have the elo of teams changing over time:
+
+```{python}
+df =pd.read_csv('data/player_ratings_with_elo.csv')
+home_df = df[['date', 'home_team_id', 'new_home_elo']].copy()
+home_df.rename(columns={'home_team_id': 'team', 'new_home_elo': 'elo'}, inplace=True)
+away_df = df[['date', 'away_team_id', 'new_away_elo']].copy()
+away_df.rename(columns={'away_team_id': 'team', 'new_away_elo': 'elo'}, inplace=True)
+elo_over_time_df = pd.concat([home_df, away_df], ignore_index=True)
+elo_over_time_df.sort_values(by=['team', 'date'], inplace=True)
+
+
+elo_plot = (
+    ggplot(elo_over_time_df, aes(x='date', y='elo', group='team', color='team'))
+    + geom_line()
+    + labs(
+        title="Team Elo Ratings Over the Season",
+        x="Date",
+        y="Elo Rating"
+    ))
+elo_plot
+```
+
+The other vizualizations are going to come directly from the model [Model](05-Model.qmd)
