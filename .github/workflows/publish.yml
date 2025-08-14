@@ -19,11 +19,10 @@ jobs:
       - name: Set up Quarto
         uses: quarto-dev/quarto-actions/setup@v2
 
-      # ADD THESE NEW STEPS HERE
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.13.2'
 
       - name: Install dependencies
         run: pip install -r requirements.txt
