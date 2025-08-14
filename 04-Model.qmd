@@ -34,10 +34,15 @@ https://www.pymc.io/projects/examples/en/latest/generalized_linear_models/multil
 https://allendowney.github.io/BayesianInferencePyMC/04_hierarchical.html
 https://www.pymc.io/projects/docs/en/stable/learn/core_notebooks/model_comparison.html
 
-so the idea is to use a Bayesian Hierarchical Model (partial pooling) that nests parameters inside parameters, and as such they are viewed as a sample from a probability distribution of parameters (taking a lot of this from pymc's multilevel modelling module). In a completely pooled model we assume that $\Delta$ Elo.
 
+The motivating idea is to use a Bayesian Hierarchical Model (partial pooling) that nests parameters inside parameters, and as such they are viewed as a sample from a probability distribution of parameters (taking a lot of this from pymc's multilevel modelling module). In a completely pooled model we assume that player skill is drawn from the same model and thus it ignores the variance between the sampling units. In a model with no pooling however, we assume the player skill are drawn from separate models, that the players are not similar in any way. A partial pooling or Hierarchical model combines both into one.
 
-This way we take into account differences in variation between our sampling units. In our context, the skill of a player realized in their ratings, can vary between each players in matches and this can handle the multicolinearity that exists between players that play with each other.
+Below I fit two models with pymc that attempts to approximate the posterior distribution using an MCMC sampler method. Initially I set up 4 models, each with slightly different hyperparameters in an effort to find one that makes sense. The ones that HalfNormal distribution helped the model in converging. 
+
+I did some prior predictive checks to see whether the simulated delta_elo values were reasonable, and only the ones with HalfNormal were giving values on the tails that were reasonable. The other HalfCauchy distribution would give values of +1000 delta elo even for a common percentile.
+
+From the prior predictive checks on delta elo it seems that models with a HalfCauchy distribution are simulating huge delta elo values (in the thousands) so I'm leaving those out as that should not be possible. So I'm comparing models 1 and 4, only in terms of their sigma_beta values which are 1 and 0.5. These are relatively weak informative priors.
+
 
 
 
@@ -108,9 +113,6 @@ az.plot_ppc(posterior_pred4, var_names=["y_obs"])
 az.plot_trace(trace1, divergences='top')
 pm.model_to_graphviz(model_small_sigma)
 ```
-
-From the prior predictive checks on delta elo it seems that models with a HalfCauchy distribution are simulating huge delta elo values (in the thousands) so I'm leaving those out as that should not be possible. So I'm comparing models 1 and 4, only in terms of their sigma_beta values which are 1 and 0.5. These are relatively weak informative priors.
-
 
 
 I'm using Leave-one-out Cross-validation (Loo) to compare the models with different hyperparameter values. LOO cross-validation is an estimate of the out-of-sample predictive fit. Generally we select the one with the highest ELPD (Expected Log Pointwise Predictive density) is better however there's always uncertainty around the estimates.

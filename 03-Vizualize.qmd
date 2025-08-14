@@ -78,4 +78,5 @@ elo_plot = (
 elo_plot
 ```
 
-The other vizualizations are going to come directly from the model [Model](05-Model.qmd)
+The other vizualizations are going to come directly from the model [Model](04-Model.qmd)
+
